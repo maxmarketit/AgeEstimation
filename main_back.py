@@ -1,4 +1,3 @@
-# %load main.py
 import os 
 import time 
 import json 
@@ -16,11 +15,10 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 from torchvision.models.resnet import resnet34
-from torchvision.models.resnet import ResNet
 from mean_variance_loss import MeanVarianceLoss
 from mean_variance_loss import MeanVarianceLoss2
 import cv2
-#from torchsummary import summary
+from torchsummary import summary
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -34,9 +32,6 @@ random.seed(2019)
 np.random.seed(2019)
 torch.manual_seed(2019)
 
-#DEV_CUDA = 'cuda:1'
-# change DEV_CUDA in mean_varaince_loss.py 
-
 
 def ResNet34(num_classes):
 
@@ -46,12 +41,7 @@ def ResNet34(num_classes):
         nn.Dropout(0.5),
         nn.Linear(512, num_classes),
     )
-    model.lossRatio = nn.Sequential(
-        nn.Linear(512, 3),
-        nn.Softmax(dim=1)
-    )
     return model
-
 
 
 def train(train_loader, model, criterion1, criterion2, optimizer, epoch, result_directory):
@@ -65,7 +55,7 @@ def train(train_loader, model, criterion1, criterion2, optimizer, epoch, result_
     for i, sample in enumerate(train_loader):
         images = sample['image'].cuda()
         labels = sample['label'].cuda()
-        output, _ = model(images)
+        output = model(images)
         mean_loss, variance_loss = criterion1(output, labels)
         softmax_loss = criterion2(output, labels)
         loss = mean_loss + variance_loss + softmax_loss
@@ -93,7 +83,7 @@ def train(train_loader, model, criterion1, criterion2, optimizer, epoch, result_
             running_variance_loss = 0.
             running_softmax_loss = 0.
             
-        return running_mean_loss, running_variance_loss, running_softmax_loss, running_loss
+        return running_mean_loss, running_variance_loss, running_sofmax_loss, running_loss
             
 ## RETURN of evaluate
 #    return mean_loss_val / len(val_loader),\    # mean
@@ -115,7 +105,7 @@ def evaluate(val_loader, model, criterion1, criterion2):
         for i, sample in enumerate(val_loader):
             image = sample['image'].cuda()
             label = sample['label'].cuda()
-            output, _ = model(image)
+            output = model(image)
             mean_loss, variance_loss = criterion1(output, label)
             softmax_loss = criterion2(output, label)
             loss = mean_loss + variance_loss + softmax_loss
@@ -144,7 +134,7 @@ def test(test_loader, model):
         for i, sample in enumerate(test_loader):
             image = sample['image'].cuda()
             label = sample['label'].cuda()
-            output, _ = model(image)
+            output = model(image)
             m = nn.Softmax(dim=1)
             output = m(output)
             a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda()
@@ -161,7 +151,7 @@ def predict(model, image):
         image = image.astype(np.float32) / 255.
         image = np.transpose(image, (2,0,1))
         img = torch.from_numpy(image).cuda()
-        output, _ = model(img[None])
+        output = model(img[None])
         m = nn.Softmax(dim=1)
         output = m(output)
         a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda()
@@ -177,7 +167,7 @@ def get_image_list(image_directory, leave_sub, validation_rate):
     for fn in os.listdir(image_directory):
         filepath = os.path.join(image_directory, fn)
         subject = int(fn[:3])
-        if subject == leave_sub:
+            if subject == leave_sub:
             test_list.append(filepath)
         else:
             train_val_list.append(filepath)
@@ -197,7 +187,6 @@ def get_image_list(image_directory, leave_sub, validation_rate):
 def get_args():
 
     parser = argparse.ArgumentParser()
-    parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--batch_size', type=int, default=16)
     parser.add_argument('-l', '--loss_type', type=int, default=1)
     parser.add_argument('-i', '--image_directory', type=str)
@@ -210,24 +199,18 @@ def get_args():
     parser.add_argument('-rd', '--result_directory', type=str, default=None)
     parser.add_argument('-pi', '--pred_image', type=str, default=None)
     parser.add_argument('-pm', '--pred_model', type=str, default=None)
-    parser.add_argument('-cu', '--cuda', type=int, default=0)
     return parser.parse_args()
+
 
 def main():
     
     args = get_args()
-    #if args.cuda == 1:
-    #    DEV_CUDA = 'cuda:1'
-    #Does not work properly.
-    #  RuntimeError: Expected tensor for argument #1 'input' to have the same device as tensor for argument #2 'weight'; but device 0does not equal 1 #(while checking arguments for cudnn_convolution)
-    if args.cuda:
-        torch.cuda.set_device(args.cuda) 
     LAMBDA_1 = args.lambda1
     LAMBDA_2 = args.lambda2
     if args.epoch > 0:
         batch_size = args.batch_size
         if args.result_directory is None:
-            args.result_directory = 'result-DMTL'+ \
+            args.result_directory = 'result'+ \
                                     '-l'+str(args.loss_type) + \
                                     f'-lr={int(args.learning_rate*100000):06d}' + \
                                     f'-l1={int(args.lambda1*1000):04d}' + \
@@ -242,10 +225,8 @@ def main():
                 args.result_directory = args.result_directory + "_"
             if not os.path.exists(args.result_directory):
                 os.mkdir(args.result_directory)
-        print('result_directory modified to = ', args.result_directory)
-        writer_train = SummaryWriter(args.result_directory+'train') # tensorboard
-        writer_val = SummaryWriter(args.result_directory+'val') # tensorboard
-        writer_test = SummaryWriter(args.result_directory+'test') # tensorboard
+
+        writer = SummaryWriter(args.result_directory ) # tensorboard
         
         train_filepath_list, val_filepath_list, test_filepath_list\
             = get_image_list(args.image_directory, args.leave_subject, VALIDATION_RATE)
@@ -272,28 +253,6 @@ def main():
 
         test_gen = FaceDataset(test_filepath_list, transforms)
         test_loader = DataLoader(test_gen, batch_size=1, shuffle=False, pin_memory=True, num_workers=8)
-        
-        #https://stackoverflow.com/questions/972/adding-a-method-to-an-existing-object-instance
-        def forward(self, x):
-            # See note [TorchScript super()]
-            x = self.conv1(x)
-            x = self.bn1(x)
-            x = self.relu(x)
-            x = self.maxpool(x)
-
-            x = self.layer1(x)
-            x = self.layer2(x)
-            x = self.layer3(x)
-            x = self.layer4(x)
-
-            x = self.avgpool(x)
-            xout = torch.flatten(x, 1)
-            y = self.fc(xout)
-            lossR = self.lossRatio(xout)
-
-            return y,lossR
-
-        ResNet.forward = forward
 
         model = ResNet34(END_AGE - START_AGE + 1)
         model.cuda()
@@ -336,32 +295,22 @@ def main():
                         (epoch, mean_loss, variance_loss, softmax_loss, loss_val, mae))
                 f.write('epoch: %d, mae_test: %3f\n' % (epoch, mae_test))
                 
-            #writer.add_scalar('mae/val', mae, epoch)
-            #writer.add_scalar('mae/test', mae_test, epoch)
-            writer_val.add_scalar('mae', mae, epoch)
-            writer_test.add_scalar('mae', mae_test, epoch)
+            writer.add_scalar('mae/val', mae, epoch)
+            writer.add_scalar('mae/test', mae_test, epoch)
             
-            #writer.add_scalar('total-loss/train', loss_train, epoch)
-            #writer.add_scalar('total-loss/val', loss_val, epoch)
-            writer_train.add_scalar('total-loss', loss_train, epoch)
-            writer_val.add_scalar('total-loss', loss_val, epoch)
+            writer.add_scalar('total-loss/train', loss_train, epoch)
+            writer.add_scalar('total-loss/val', loss_val, epoch)
             
-            #writer.add_scalar('loss/train-mean', mean_loss_train, epoch)
-            #writer.add_scalar('loss/val-mean', mean_loss, epoch)
-            writer_train.add_scalar('loss/mean', mean_loss_train, epoch)
-            writer_val.add_scalar('loss/mean', mean_loss, epoch)
+            writer.add_scalar('loss/train-mean', mean_loss_train, epoch)
+            writer.add_scalar('loss/val-mean', mean_loss, epoch)
             
-            #writer.add_scalar('loss/train-var', variance_loss_train, epoch)
-            #writer.add_scalar('loss/val-var', variance_loss, epoch)
-            writer_train.add_scalar('loss/var', variance_loss_train, epoch)
-            writer_val.add_scalar('loss/var', variance_loss, epoch)
+            writer.add_scalar('loss/train-var', variance_loss_train, epoch)
+            writer.add_scalar('loss/val-var', variance_loss, epoch)
             
-            #writer.add_scalar('loss/train-soft', softmax_loss_train, epoch)
-            #writer.add_scalar('loss/val-soft', softmax_loss, epoch)
-            writer_train.add_scalar('loss/soft', softmax_loss_train, epoch)
-            writer_val.add_scalar('loss/soft', softmax_loss, epoch)
+            writer.add_scalar('loss/train-soft', softmax_loss_train, epoch)
+            writer.add_scalar('loss/val-soft', softmax_loss, epoch)
             
-            #writer.add_scalars('loss/trainAndVal', {'train':loss_train, 'val':loss_val}, epoch)
+            writer.add_scalars('loss/trainAndVal', {'train':loss_train, 'val':loss_val}, e)
                 
             if best_val_mae > mae:
                 best_val_mae = mae
@@ -387,7 +336,6 @@ def main():
         cv2.putText(img, 'Age: ' + str(int(pred)), (int(img.shape[1]*0.1), int(img.shape[0]*0.9)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
         name, ext = os.path.splitext(args.pred_image)
         cv2.imwrite(name + '_result.jpg', img)
-        
         
 if __name__ == "__main__":
     main()

@@ -16,7 +16,6 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 from torchvision.models.resnet import resnet34
-from torchvision.models.resnet import ResNet
 from mean_variance_loss import MeanVarianceLoss
 from mean_variance_loss import MeanVarianceLoss2
 import cv2
@@ -34,7 +33,7 @@ random.seed(2019)
 np.random.seed(2019)
 torch.manual_seed(2019)
 
-#DEV_CUDA = 'cuda:1'
+DEV_CUDA = 'cuda:1'
 # change DEV_CUDA in mean_varaince_loss.py 
 
 
@@ -46,12 +45,7 @@ def ResNet34(num_classes):
         nn.Dropout(0.5),
         nn.Linear(512, num_classes),
     )
-    model.lossRatio = nn.Sequential(
-        nn.Linear(512, 3),
-        nn.Softmax(dim=1)
-    )
     return model
-
 
 
 def train(train_loader, model, criterion1, criterion2, optimizer, epoch, result_directory):
@@ -63,9 +57,9 @@ def train(train_loader, model, criterion1, criterion2, optimizer, epoch, result_
     running_softmax_loss = 0.
     interval = 10
     for i, sample in enumerate(train_loader):
-        images = sample['image'].cuda()
-        labels = sample['label'].cuda()
-        output, _ = model(images)
+        images = sample['image'].cuda(DEV_CUDA)
+        labels = sample['label'].cuda(DEV_CUDA)
+        output = model(images)
         mean_loss, variance_loss = criterion1(output, labels)
         softmax_loss = criterion2(output, labels)
         loss = mean_loss + variance_loss + softmax_loss
@@ -104,7 +98,7 @@ def train(train_loader, model, criterion1, criterion2, optimizer, epoch, result_
 
 
 def evaluate(val_loader, model, criterion1, criterion2):
-    model.cuda()
+    model.cuda(DEV_CUDA)
     model.eval()
     loss_val = 0.
     mean_loss_val = 0.
@@ -113,9 +107,9 @@ def evaluate(val_loader, model, criterion1, criterion2):
     mae = 0.
     with torch.no_grad():
         for i, sample in enumerate(val_loader):
-            image = sample['image'].cuda()
-            label = sample['label'].cuda()
-            output, _ = model(image)
+            image = sample['image'].cuda(DEV_CUDA)
+            label = sample['label'].cuda(DEV_CUDA)
+            output = model(image)
             mean_loss, variance_loss = criterion1(output, label)
             softmax_loss = criterion2(output, label)
             loss = mean_loss + variance_loss + softmax_loss
@@ -125,7 +119,7 @@ def evaluate(val_loader, model, criterion1, criterion2):
             softmax_loss_val += softmax_loss.data
             m = nn.Softmax(dim=1)
             output_softmax = m(output)
-            a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda()
+            a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda(DEV_CUDA)
             mean = (output_softmax * a).sum(1, keepdim=True).cpu().data.numpy()
             pred = np.around(mean)
             mae += np.absolute(pred - sample['label'].cpu().data.numpy())
@@ -137,17 +131,17 @@ def evaluate(val_loader, model, criterion1, criterion2):
 
 
 def test(test_loader, model):
-    model.cuda()
+    model.cuda(DEV_CUDA)
     model.eval()
     mae = 0.
     with torch.no_grad():
         for i, sample in enumerate(test_loader):
-            image = sample['image'].cuda()
-            label = sample['label'].cuda()
-            output, _ = model(image)
+            image = sample['image'].cuda(DEV_CUDA)
+            label = sample['label'].cuda(DEV_CUDA)
+            output = model(image)
             m = nn.Softmax(dim=1)
             output = m(output)
-            a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda()
+            a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda(DEV_CUDA)
             mean = (output * a).sum(1, keepdim=True).cpu().data.numpy()
             pred = np.around(mean)
             mae += np.absolute(pred - sample['label'].cpu().data.numpy())
@@ -160,11 +154,11 @@ def predict(model, image):
     with torch.no_grad():
         image = image.astype(np.float32) / 255.
         image = np.transpose(image, (2,0,1))
-        img = torch.from_numpy(image).cuda()
-        output, _ = model(img[None])
+        img = torch.from_numpy(image).cuda(DEV_CUDA)
+        output = model(img[None])
         m = nn.Softmax(dim=1)
         output = m(output)
-        a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda()
+        a = torch.arange(START_AGE, END_AGE + 1, dtype=torch.float32).cuda(DEV_CUDA)
         mean = (output * a).sum(1, keepdim=True).cpu().data.numpy()
         pred = np.around(mean)[0][0]
     return pred
@@ -197,7 +191,6 @@ def get_image_list(image_directory, leave_sub, validation_rate):
 def get_args():
 
     parser = argparse.ArgumentParser()
-    parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--batch_size', type=int, default=16)
     parser.add_argument('-l', '--loss_type', type=int, default=1)
     parser.add_argument('-i', '--image_directory', type=str)
@@ -220,14 +213,12 @@ def main():
     #    DEV_CUDA = 'cuda:1'
     #Does not work properly.
     #  RuntimeError: Expected tensor for argument #1 'input' to have the same device as tensor for argument #2 'weight'; but device 0does not equal 1 #(while checking arguments for cudnn_convolution)
-    if args.cuda:
-        torch.cuda.set_device(args.cuda) 
     LAMBDA_1 = args.lambda1
     LAMBDA_2 = args.lambda2
     if args.epoch > 0:
         batch_size = args.batch_size
         if args.result_directory is None:
-            args.result_directory = 'result-DMTL'+ \
+            args.result_directory = 'result'+ \
                                     '-l'+str(args.loss_type) + \
                                     f'-lr={int(args.learning_rate*100000):06d}' + \
                                     f'-l1={int(args.lambda1*1000):04d}' + \
@@ -272,40 +263,18 @@ def main():
 
         test_gen = FaceDataset(test_filepath_list, transforms)
         test_loader = DataLoader(test_gen, batch_size=1, shuffle=False, pin_memory=True, num_workers=8)
-        
-        #https://stackoverflow.com/questions/972/adding-a-method-to-an-existing-object-instance
-        def forward(self, x):
-            # See note [TorchScript super()]
-            x = self.conv1(x)
-            x = self.bn1(x)
-            x = self.relu(x)
-            x = self.maxpool(x)
-
-            x = self.layer1(x)
-            x = self.layer2(x)
-            x = self.layer3(x)
-            x = self.layer4(x)
-
-            x = self.avgpool(x)
-            xout = torch.flatten(x, 1)
-            y = self.fc(xout)
-            lossR = self.lossRatio(xout)
-
-            return y,lossR
-
-        ResNet.forward = forward
 
         model = ResNet34(END_AGE - START_AGE + 1)
-        model.cuda()
+        model.cuda(DEV_CUDA)
 
         optimizer = optim.SGD(model.parameters(), lr = args.learning_rate, momentum=0.9, weight_decay=1e-4)
         if args.loss_type == 1:
-            criterion1 = MeanVarianceLoss(LAMBDA_1, LAMBDA_2, START_AGE, END_AGE).cuda()
+            criterion1 = MeanVarianceLoss(LAMBDA_1, LAMBDA_2, START_AGE, END_AGE).cuda(DEV_CUDA)
         elif args.loss_type == 2:
-            criterion1 = MeanVarianceLoss2(LAMBDA_1, LAMBDA_2, START_AGE, END_AGE).cuda()
+            criterion1 = MeanVarianceLoss2(LAMBDA_1, LAMBDA_2, START_AGE, END_AGE).cuda(DEV_CUDA)
         else:
             raise ValueError('loss_type should be either 1 or 2')
-        criterion2 = torch.nn.CrossEntropyLoss().cuda()
+        criterion2 = torch.nn.CrossEntropyLoss().cuda(DEV_CUDA)
 
         # scheduler = lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
         scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[40, 60], gamma=0.1)
@@ -378,7 +347,7 @@ def main():
                   % (best_loss_epoch, best_val_loss, best_mae_epoch, best_val_mae))
     if args.pred_image and args.pred_model:
         model = ResNet34(END_AGE - START_AGE + 1)
-        model.cuda()
+        model.cuda(DEV_CUDA)
         img = cv2.imread(args.pred_image)
         resized_img = cv2.resize(img, (224, 224))
         model.load_state_dict(torch.load(args.pred_model))

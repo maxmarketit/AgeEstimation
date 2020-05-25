@@ -6,13 +6,28 @@ from torch.utils.data import Dataset
 
 class FaceDataset(Dataset):
 
-    def __init__(self, filepath_list, transform=None):
+    def __init__(self, filepath_list, transform=None, datMeta=None):
         
         self.images = []
         self.labels = []
         for filepath in filepath_list:
             basename = os.path.basename(filepath)
-            self.labels.append(int(basename[4:6]))
+            
+            # Modified to line 21-28
+            #self.labels.append(int(basename[4:6])) # 4,5
+            ## 012345
+            ## 001A45
+            
+            if datMeta is None: # when datMeta is None, same as before
+                self.labels.append(int(basename[4:6])) # 4,5
+                # 012345
+                # 001A45
+            else:
+                #datMeta[datMeta['fn'] == basename]['age']
+                self.labels.append(datMeta[datMeta['fn_base'] == basename]['age'].values[0])
+                self.labels2.append(((datMeta[datMeta['fn_base'] == basename]['gender'].values[0])== 'F')*1)
+            
+            
             img = np.array(Image.open(filepath).convert('RGB'))
             self.images.append(img)
         self.images = np.array(self.images)
