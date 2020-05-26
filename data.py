@@ -10,6 +10,11 @@ class FaceDataset(Dataset):
         
         self.images = []
         self.labels = []
+        self.labels2 = []
+        self.Egender = True
+        if datMeta is None:
+            self.Egender = False
+        #self.datMeta = datMeta
         for filepath in filepath_list:
             basename = os.path.basename(filepath)
             
@@ -32,6 +37,7 @@ class FaceDataset(Dataset):
             self.images.append(img)
         self.images = np.array(self.images)
         self.labels = np.array(self.labels)
+        self.labels2 = np.array(self.labels2, dtype=np.float32).astype('float32')
         self.transform = transform
 
     def __len__(self):
@@ -45,5 +51,10 @@ class FaceDataset(Dataset):
         label = self.labels[index]
         if self.transform:
             img = self.transform(img)
-        sample = {'image': img, 'label': label}
-        return sample       
+        if self.Egender:
+            label2 = self.labels2[index]    
+            sample = {'image': img, 'label': label, 'label2':label2}
+            return sample
+        else:
+            sample = {'image': img, 'label': label}
+            return sample
