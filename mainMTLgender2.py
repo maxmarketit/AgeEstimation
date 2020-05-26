@@ -1,4 +1,14 @@
-# %load main.py
+# mainMTLgender2.py
+# genderLoss와 ageLoss 합치기 : 로직
+#   
+#   
+#   1. minimize w1/L1 + w2/L2 -> L1>L2 -> w1=1, w2=0
+#                                L1<L2 -> w1=0, w2=1
+#   2. 만약 L1, L2이고 L2 = L21 + L22 + L23로 구성된다면?
+#                     동시에 minimize하고 싶다면?
+#                     만약 L2가 결정되어 있다면(계수가 정해져 있다면),
+#                     w1,w2는 w1/L1 + w2/L2로 결정하고,
+#                     L2 내에서는 w21/L21 + w22/L22 + w23/L23으로 결정할 수 있을 듯...
 import os 
 import time 
 import json 
@@ -97,7 +107,34 @@ def ResNet152(num_classes):
     )
     return model
 
+def ResNet50(num_classes):
 
+    model = resnet50(pretrained=True)
+    model.fc = nn.Sequential(
+        nn.BatchNorm1d(2048),
+        nn.Dropout(0.5), 
+        nn.Linear(2048, num_classes),
+    )
+    model.fcGender = nn.Sequential(
+        nn.BatchNorm1d(2048),
+        nn.Dropout(0.5),
+        nn.Linear(2048, 1),
+        nn.Sigmoid()
+    )
+    #model.lossRatio = nn.Sequential(
+    #    nn.Linear(2048, 3), # fc(softmax, mean, variance) + gender
+    #    nn.Softmax(dim=1)
+    #)
+    model.lossRatioAll = nn.Sequential(
+        nn.Linear(2048, 1), # fc(age) + gender
+        nn.Sigmoid()
+    )
+    model.lossRatioAge = nn.Sequential(
+        nn.Linear(2048, 3), # fc(softmax, mean, variance) 
+        nn.Softmax(dim=1)
+    )
+    return model
+    
 
 def train(train_loader, model, criterion1, criterion2, criterionGender,\
           optimizer, optimizerwAll, optimizerwAge, epoch, result_directory):
@@ -418,6 +455,8 @@ def main():
 
     if args.CNN == 'resnet34':
         model = ResNet34(END_AGE - START_AGE + 1)
+    elif args.CNN == 'resnet50':
+        model = ResNet50(END_AGE - START_AGE + 1)
     elif args.CNN == 'resnet152':
         model = ResNet152(END_AGE - START_AGE + 1)
     else:
