@@ -182,7 +182,8 @@ def train(train_loader, model, criterion1, criterion2, criterionGender,\
         loss.backward()
         optimizer.step()
         
-        running_loss += loss.data
+        #running_loss += loss.data
+        running_loss += l1 + l2 + l3 + lGender # to match val_loss
         running_mean_loss += mean_loss.data
         running_variance_loss += variance_loss.data
         running_softmax_loss += softmax_loss.data
